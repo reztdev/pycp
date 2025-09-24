@@ -20,10 +20,26 @@ import shutil
 import tempfile
 import stat
 import hashlib
+import platform
 import errno
 import signal
 import time
 from pathlib import Path
+
+# --- Deteksi OS ---
+SYSTEM = platform.system().lower()
+
+# --- Import opsional untuk Windows ---
+try:
+    import win32security
+    import ntsecuritycon as con
+except ImportError:
+    win32security = None
+
+try:
+    import xattr  # pyxattr (Linux/macOS/Windows kalau install)
+except ImportError:
+    xattr = None
 
 # Constants
 DEFAULT_BUF = 64 * 1024
@@ -43,6 +59,44 @@ def sig_handler(signum, frame):
 
 signal.signal(signal.SIGINT, sig_handler)
 signal.signal(signal.SIGTERM, sig_handler)
+
+def copy_metadata(src, dst):
+    """Preserve metadata cross-platform (Linux/Windows)."""
+    shutil.copystat(src, dst)
+
+    if SYSTEM in ("linux", "darwin"):  # Unix-like
+        try:
+            st = os.stat(src)
+            os.chown(dst, st.st_uid, st.st_gid)
+        except PermissionError:
+            pass
+
+        if hasattr(os, "listxattr"):
+            for attr in os.listxattr(src):
+                value = os.getxattr(src, attr)
+                os.setxattr(dst, attr, value)
+
+    elif SYSTEM == "windows":
+        # copy owner via pywin32
+        if win32security:
+            try:
+                sd = win32security.GetFileSecurity(
+                    src, win32security.OWNER_SECURITY_INFORMATION
+                )
+                win32security.SetFileSecurity(
+                    dst, win32security.OWNER_SECURITY_INFORMATION, sd
+                )
+            except Exception as e:
+                print(f"[!] Set owner failed: {e}")
+
+        # copy xattr via pyxattr
+        if xattr:
+            try:
+                for attr in xattr.listxattr(src):
+                    value = xattr.getxattr(src, attr)
+                    xattr.setxattr(dst, attr, value)
+            except Exception as e:
+                print(f"[!] Copy xattr failed: {e}")
 
 def is_all_zero(b: bytes) -> bool:
     # fast check
@@ -318,6 +372,7 @@ def parse_args(argv):
     p.add_argument("--no-atomic", action="store_true", help="Do not use atomic temp file + replace (use direct write)")
     p.add_argument("-v", "--verbose", action="store_true", help="Verbose output")
     p.add_argument("--dry-run", action="store_true", help="Print actions but do not perform writes")
+    p.add_argument("--no-meta", action="store_true", help="Do not preserve metadata")
     return p.parse_args(argv)
 
 def main(argv):
