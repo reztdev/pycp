@@ -26,10 +26,8 @@ import signal
 import time
 from pathlib import Path
 
-# --- Deteksi OS ---
 SYSTEM = platform.system().lower()
 
-# --- Import opsional untuk Windows ---
 try:
     import win32security
     import ntsecuritycon as con
@@ -37,7 +35,7 @@ except ImportError:
     win32security = None
 
 try:
-    import xattr  # pyxattr (Linux/macOS/Windows kalau install)
+    import xattr
 except ImportError:
     xattr = None
 
@@ -45,7 +43,6 @@ except ImportError:
 DEFAULT_BUF = 64 * 1024
 SPARSE_ZERO_BLOCK = 4096  # treat blocks of zeros >= this as sparse candidate
 
-# Global to track tempfiles for cleanup on signal
 _tempfiles = set()
 
 def sig_handler(signum, frame):
@@ -380,7 +377,6 @@ def main(argv):
     srcs = args.src
     dst = args.dst
 
-    # Multisource -> dst must be directory or existing directory
     if len(srcs) > 1:
         if not os.path.isdir(dst):
             print("When copying multiple sources, destination must be a directory", file=sys.stderr)
